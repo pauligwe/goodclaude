@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 200px;
+    height: 200px;
+    overflow: hidden;
+    background: transparent;
+    pointer-events: none;
+  }
+
+  #heart-wrap {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    cursor: pointer;
+    animation: drop-in 0.5s ease-out forwards, pulse 1.2s ease-in-out 0.5s infinite;
+  }
+
+  .heart {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    background: hotpink;
+    transform: rotate(45deg);
+  }
+
+  .heart::before,
+  .heart::after {
+    content: '';
+    position: absolute;
+    width: 80px;
+    height: 80px;
+    background: hotpink;
+    border-radius: 50%;
+  }
+
+  .heart::before {
+    top: -40px;
+    left: 0;
+  }
+
+  .heart::after {
+    top: 0;
+    left: -40px;
+  }
+
+  @keyframes drop-in {
+    0%   { transform: translate(-50%, calc(-50% - 120px)) scale(0.4); opacity: 0; }
+    60%  { transform: translate(-50%, calc(-50% + 10px)) scale(1.1); opacity: 1; }
+    80%  { transform: translate(-50%, calc(-50% - 6px)) scale(0.95); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    50%       { transform: translate(-50%, -50%) scale(1.08); }
+  }
+</style>
+</head>
+<body>
+  <div id="heart-wrap">
+    <div class="heart"></div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron')
+
+    const heartWrap = document.getElementById('heart-wrap')
+
+    heartWrap.addEventListener('mouseenter', () => ipcRenderer.send('mouse-enter-heart'))
+    heartWrap.addEventListener('mouseleave', () => ipcRenderer.send('mouse-leave-heart'))
+    heartWrap.addEventListener('click', () => ipcRenderer.send('close-overlay'))
+  </script>
+</body>
+</html>

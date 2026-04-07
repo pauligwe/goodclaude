@@ -1,0 +1,12 @@
+{
+  "name": "goodclaude",
+  "version": "1.0.0",
+  "description": "The wholesome counterpart to badclaude",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^33.0.0"
+  }
+}
