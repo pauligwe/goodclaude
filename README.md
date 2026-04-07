@@ -8,7 +8,7 @@ A wholesome counterpart to [badclaude](https://github.com/GitFrog1111/badclaude)
 
 ```bash
 npm install
-npm start
+npm run dev
 ```
 
 ## What it does
