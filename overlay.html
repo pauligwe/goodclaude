@@ -6,13 +6,14 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   html, body {
-    width: 200px;
-    height: 200px;
+    width: 600px;
+    height: 600px;
     overflow: hidden;
     background: transparent;
     pointer-events: none;
   }
 
+  /* ── Main heart ── */
   #heart-wrap {
     position: absolute;
     top: 50%;
@@ -20,41 +21,42 @@
     transform: translate(-50%, -50%);
     pointer-events: auto;
     cursor: pointer;
+    width: 96px;
+    height: 88px;
     animation: drop-in 0.5s ease-out forwards, pulse 1.2s ease-in-out 0.5s infinite;
   }
 
-  .heart {
-    position: relative;
-    width: 80px;
-    height: 80px;
-    background: hotpink;
-    transform: rotate(45deg);
+  #heart-wrap.holding {
+    animation: wobble 0.12s ease-in-out infinite !important;
+    cursor: grabbing;
   }
 
-  .heart::before,
-  .heart::after {
-    content: '';
+  /* SVG heart base layer */
+  #heart-svg, #heart-fill-svg {
     position: absolute;
-    width: 80px;
-    height: 80px;
-    background: hotpink;
-    border-radius: 50%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
   }
 
-  .heart::before {
-    top: -40px;
-    left: 0;
+  /* ── Cascade mini hearts ── */
+  .mini-wrap {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    pointer-events: none;
+    width: 0; height: 0;
   }
 
-  .heart::after {
-    top: 0;
-    left: -40px;
+  .mini-heart {
+    position: absolute;
+    transform: translate(-50%, -50%);
   }
 
+  /* ── Keyframes ── */
   @keyframes drop-in {
-    0%   { transform: translate(-50%, calc(-50% - 120px)) scale(0.4); opacity: 0; }
+    0%   { transform: translate(-50%, calc(-50% - 140px)) scale(0.4); opacity: 0; }
     60%  { transform: translate(-50%, calc(-50% + 10px)) scale(1.1); opacity: 1; }
-    80%  { transform: translate(-50%, calc(-50% - 6px)) scale(0.95); opacity: 1; }
+    80%  { transform: translate(-50%, calc(-50% - 5px)) scale(0.96); opacity: 1; }
     100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   }
 
@@ -62,21 +64,293 @@
     0%, 100% { transform: translate(-50%, -50%) scale(1); }
     50%       { transform: translate(-50%, -50%) scale(1.08); }
   }
+
+  @keyframes wobble {
+    0%   { transform: translate(-50%, -50%) scale(1.06) rotate(-2deg); }
+    25%  { transform: translate(-50%, -50%) scale(1.08) rotate(2deg); }
+    50%  { transform: translate(-50%, -50%) scale(1.06) rotate(-1.5deg); }
+    75%  { transform: translate(-50%, -50%) scale(1.08) rotate(1.5deg); }
+    100% { transform: translate(-50%, -50%) scale(1.06) rotate(-2deg); }
+  }
 </style>
 </head>
 <body>
+
   <div id="heart-wrap">
-    <div class="heart"></div>
+    <!--
+      Heart drawn as SVG path so fill clip is trivial.
+      viewBox 0 0 100 90 — heart outline path.
+    -->
+    <svg id="heart-svg" viewBox="0 0 100 90" xmlns="http://www.w3.org/2000/svg">
+      <path id="heart-base" d="M50,85 C50,85 5,55 5,28 C5,14 16,5 28,5 C36,5 44,9 50,16 C56,9 64,5 72,5 C84,5 95,14 95,28 C95,55 50,85 50,85 Z"
+            fill="hotpink"/>
+    </svg>
+    <!-- Fill layer: clipPath keeps fill inside heart shape, rect grows from bottom -->
+    <svg id="heart-fill-svg" viewBox="0 0 100 90" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id="heart-clip">
+          <path d="M50,85 C50,85 5,55 5,28 C5,14 16,5 28,5 C36,5 44,9 50,16 C56,9 64,5 72,5 C84,5 95,14 95,28 C95,55 50,85 50,85 Z"/>
+        </clipPath>
+      </defs>
+      <rect id="fill-rect" x="0" y="90" width="100" height="0"
+            fill="rgba(255,20,147,0.5)" clip-path="url(#heart-clip)"/>
+    </svg>
   </div>
 
   <script>
     const { ipcRenderer } = require('electron')
 
     const heartWrap = document.getElementById('heart-wrap')
+    const fillRect  = document.getElementById('fill-rect')
 
+    const HOLD_DURATION = 300  // ms to fully charge
+    const COLORS = ['hotpink','#ff6b9d','#ff4d79','#ff85b3','#e91e8c','#ff1493','#ff69b4']
+
+    const SEGMENTS = [
+      { start: 0.00, end: 1.10 },
+      { start: 1.11, end: 3.10 },
+      { start: 3.27, end: 5.15 },
+    ]
+
+    const audioCtx = new AudioContext()
+    let currentSource = null
+    let currentGain = null
+    let currentStopTimer = null
+    let segmentIndex = 0
+    const FADE = 0.08  // seconds
+
+    function playSegment() {
+      // Fade out and stop any current segment
+      if (currentGain && currentSource) {
+        const g = currentGain
+        const s = currentSource
+        g.gain.setTargetAtTime(0, audioCtx.currentTime, FADE / 3)
+        clearTimeout(currentStopTimer)
+        setTimeout(() => { try { s.stop() } catch(e) {} }, FADE * 1000 + 50)
+        currentSource = null
+        currentGain = null
+      }
+
+      const seg = SEGMENTS[segmentIndex % SEGMENTS.length]
+      segmentIndex++
+      const duration = seg.end - seg.start
+
+      fetch('essential.mp3')
+        .then(r => r.arrayBuffer())
+        .then(buf => audioCtx.decodeAudioData(buf))
+        .then(decoded => {
+          const source = audioCtx.createBufferSource()
+          source.buffer = decoded
+
+          const gain = audioCtx.createGain()
+          gain.gain.setValueAtTime(0, audioCtx.currentTime)
+          gain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + FADE)
+
+          source.connect(gain)
+          gain.connect(audioCtx.destination)
+
+          source.start(0, seg.start, duration)
+          currentSource = source
+          currentGain = gain
+
+          // Fade out before end
+          const fadeOutAt = audioCtx.currentTime + duration - FADE
+          gain.gain.setTargetAtTime(0, fadeOutAt, FADE / 3)
+
+          currentStopTimer = setTimeout(() => {
+            try { source.stop() } catch(e) {}
+            currentSource = null
+            currentGain = null
+          }, duration * 1000 + 100)
+        })
+    }
+
+    let holdStart = null
+    let holdRaf   = null
+    let holding   = false
+    let filled    = 0  // current fill 0–1
+
+    function setFill(pct) {
+      // rect grows from bottom: y = 90 - height
+      const h = pct * 90
+      fillRect.setAttribute('y', 90 - h)
+      fillRect.setAttribute('height', h)
+    }
+
+    const DRAG_THRESHOLD = 6  // px — movement beyond this switches to drag mode
+    let mouseDownX = 0
+    let mouseDownY = 0
+    let dragging = false
+
+    function startHold(e) {
+      if (holding) return
+      e.preventDefault()
+      mouseDownX = e.clientX
+      mouseDownY = e.clientY
+      dragging = false
+      holding = true
+      holdStart = performance.now()
+      heartWrap.classList.add('holding')
+      holdRaf = requestAnimationFrame(tickHold)
+    }
+
+    function onMouseMove(e) {
+      if (dragging) {
+        ipcRenderer.send('drag-move', { x: e.screenX, y: e.screenY })
+        return
+      }
+      if (!holding) return
+      const dx = e.clientX - mouseDownX
+      const dy = e.clientY - mouseDownY
+      if (Math.sqrt(dx*dx + dy*dy) > DRAG_THRESHOLD) {
+        // Switch to drag mode — cancel fill
+        dragging = true
+        cancelAnimationFrame(holdRaf)
+        heartWrap.classList.remove('holding')
+        setFill(0)
+        filled = 0
+        heartWrap.style.cursor = 'grabbing'
+        // Make entire window capture mouse so cursor leaving heart doesn't lose events
+        document.body.style.pointerEvents = 'auto'
+        ipcRenderer.send('start-drag')
+      }
+    }
+
+    function tickHold(now) {
+      if (!holding || dragging) return
+      const elapsed = now - holdStart
+      filled = Math.min(elapsed / HOLD_DURATION, 1)
+      setFill(filled)
+
+      if (filled >= 1) {
+        triggerCascade()
+        return
+      }
+      holdRaf = requestAnimationFrame(tickHold)
+    }
+
+    function cancelHold() {
+      if (dragging) {
+        dragging = false
+        heartWrap.style.cursor = 'pointer'
+        document.body.style.pointerEvents = 'none'
+        ipcRenderer.send('end-drag')
+      }
+      if (!holding) return
+      holding = false
+      cancelAnimationFrame(holdRaf)
+      heartWrap.classList.remove('holding')
+
+      // Drain fill
+      const startFill = filled
+      const drainStart = performance.now()
+      const DRAIN_MS = 250
+      function drain(now) {
+        const t = Math.min((now - drainStart) / DRAIN_MS, 1)
+        setFill(startFill * (1 - t))
+        if (t < 1) requestAnimationFrame(drain)
+        else filled = 0
+      }
+      requestAnimationFrame(drain)
+    }
+
+    let cascading = false
+    function triggerCascade() {
+      if (cascading) return
+      cascading = true
+      holding = false
+      heartWrap.classList.remove('holding')
+      ipcRenderer.send('cascade')
+      playSegment()
+
+      // Flash the heart briefly then reset it
+      heartWrap.style.transition = 'opacity 0.1s'
+      heartWrap.style.opacity = '0.2'
+      spawnCascade()
+
+      setTimeout(() => {
+        // Reset fill and restore heart — ready to charge again
+        setFill(0)
+        filled = 0
+        cascading = false
+        heartWrap.style.opacity = '1'
+        heartWrap.style.animation = 'pulse 1.2s ease-in-out infinite'
+      }, 400)
+    }
+
+    function spawnCascade() {
+      const count = 10
+      for (let i = 0; i < count; i++) {
+        const angle  = (360 / count) * i + (Math.random() * 24 - 12)
+        const speed  = 100 + Math.random() * 90
+        const color  = COLORS[Math.floor(Math.random() * COLORS.length)]
+        const delay  = Math.random() * 60
+        const size   = 14 + Math.floor(Math.random() * 16)
+        spawnMini({ angle, speed, color, delay, size })
+      }
+    }
+
+    function spawnMini({ angle, speed, color, delay, size }) {
+      const wrap = document.createElement('div')
+      wrap.className = 'mini-wrap'
+
+      // SVG mini heart
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      svg.setAttribute('viewBox', '0 0 100 90')
+      svg.style.width  = size + 'px'
+      svg.style.height = (size * 0.9) + 'px'
+      svg.style.position = 'absolute'
+      svg.style.transform = 'translate(-50%, -50%)'
+
+      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      p.setAttribute('d', 'M50,85 C50,85 5,55 5,28 C5,14 16,5 28,5 C36,5 44,9 50,16 C56,9 64,5 72,5 C84,5 95,14 95,28 C95,55 50,85 50,85 Z')
+      p.setAttribute('fill', color)
+      svg.appendChild(p)
+      wrap.appendChild(svg)
+      document.body.appendChild(wrap)
+
+      const rad     = (angle - 90) * Math.PI / 180
+      const vx      = Math.cos(rad) * speed
+      const vy      = Math.sin(rad) * speed
+      const gravity = 300
+      const duration = 900 + Math.random() * 200
+
+      setTimeout(() => {
+        const start = performance.now()
+        requestAnimationFrame(function step(now) {
+          const t = (now - start) / 1000
+          const x = vx * t
+          const y = vy * t + 0.5 * gravity * t * t
+          const progress = (now - start) / duration
+          const opacity  = Math.max(0, 1 - progress * 1.1)
+
+          wrap.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`
+          wrap.style.opacity = opacity
+
+          if (progress < 1) {
+            requestAnimationFrame(step)
+          } else {
+            wrap.remove()
+          }
+        })
+      }, delay)
+    }
+
+    // ── Event listeners ──
     heartWrap.addEventListener('mouseenter', () => ipcRenderer.send('mouse-enter-heart'))
-    heartWrap.addEventListener('mouseleave', () => ipcRenderer.send('mouse-leave-heart'))
-    heartWrap.addEventListener('click', () => ipcRenderer.send('close-overlay'))
+    heartWrap.addEventListener('mouseleave', () => {
+      ipcRenderer.send('mouse-leave-heart')
+      cancelHold()
+    })
+    heartWrap.addEventListener('mousedown', startHold)
+    heartWrap.addEventListener('mouseup',   cancelHold)
+    // Use window-level mousemove so drag works even when cursor leaves the heart
+    window.addEventListener('mousemove', onMouseMove)
+    // right-click dismisses
+    heartWrap.addEventListener('contextmenu', e => {
+      e.preventDefault()
+      ipcRenderer.send('close-overlay')
+    })
   </script>
 </body>
 </html>

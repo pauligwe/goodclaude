@@ -4,9 +4,11 @@
   "description": "The wholesome counterpart to badclaude",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dev": "electron . 2>/dev/null & claude"
   },
   "dependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "koffi": "^2.9.0"
   }
 }
